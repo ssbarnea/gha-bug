@@ -1,0 +1,80 @@
+name: tox
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: ${{ matrix.name || matrix.tox_env }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell || 'bash'}}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          # keep list sorted as it determines UI order too
+          - 3.9
+        os:
+          - ubuntu-20.04
+        # - windows-latest
+        # - windows-2016
+        include:
+          # Disabled due to getting stuck and timeouts not working
+          # https://github.com/Vampire/setup-wsl/discussions/25
+          - name: py39 (wsl) 2022
+            tox_env: py39
+            os: windows-2022
+            shell: "wsl-bash {0}"
+          - name: py39 (wsl) 2019
+            tox_env: py39
+            os: windows-2019
+            shell: "wsl-bash {0}"
+          - tox_env: py39
+            os: ubuntu-20.04
+            python-version: 3.9
+
+    env:
+      # vars safe to be passed to wsl:
+      WSLENV: FORCE_COLOR:TOXENV:TOX_PARALLEL_NO_SPINNER
+
+    steps:
+      - name: Activate WSL1
+        if: "contains(matrix.shell, 'wsl')"
+        uses: Vampire/setup-wsl@v1
+
+      - name: For git to always use Unix newlines
+        if: "contains(matrix.shell, 'wsl')"
+        run: |
+          git config --system core.autocrlf false
+          git config --system core.eol lf
+        # keep bash here to avoid using wsl-bash:
+        shell: bash
+
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # needed by setuptools-scm
+
+      - name: Set up Python ${{ matrix.python-version }}
+        if: "!contains(matrix.shell, 'wsl')"
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run ./tools/test-setup.sh
+        run: |
+          ./tools/test-setup.sh
+
+      - name: Run test
+        run: |
+          pwd
+          python3 -m pip install --user ansible-core
+          "$HOME/.local/bin/ansible" --version
